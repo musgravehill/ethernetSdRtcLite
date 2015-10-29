@@ -66,7 +66,7 @@ File sdFile;
 
 void setup()
 {
-  //Serial.begin(9600);  
+  Serial.begin(9600);  
   pinMode(W5200_CS, OUTPUT);      
   pinMode(SDCARD_CS,OUTPUT);
 
@@ -123,7 +123,13 @@ void loop()
           processRequest(clientRequestUriRaw, client);
           delay(1); // give the web browser time to receive the data       
           client.stop(); // close the connection  
-          logRequest(clientRequestUriRaw);            
+          logRequest(clientRequestUriRaw);
+
+          int freeRam = FreeRam();
+          String freeRamInfo = F("freeRAM: ");
+          freeRamInfo += freeRam;
+          freeRamInfo += F(" of 2048 bytes");
+          Serial.println(freeRamInfo);          
         }
       }      
     }             
@@ -131,7 +137,7 @@ void loop()
 
 }//loop
 
-void processRequest(String clientRequestUriRaw, EthernetClient client){  
+void processRequest(String& clientRequestUriRaw, EthernetClient& client){  
   String clientRequestUri = " ";
   clientRequestUri = clientRequestUriRaw; //GET /images/bob.jpg HTTP/1.1
   clientRequestUri.replace("GET /", "");
@@ -142,55 +148,57 @@ void processRequest(String clientRequestUriRaw, EthernetClient client){
   for(int i=0; i<4; i++){
     uint8_t pos = uriSize -4 +i;
     fileExt += clientRequestUri[pos];
-  } 
+  }    
 
   if(fileExt == ".htm"){  //see "the 8.3 convention"!!!  fileName[8].fileExt[3] 
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type: text/html");
-    client.println("Connnection: close");
+    client.println(F("HTTP/1.1 200 OK"));  
+    client.println(F("Content-Type: text/html"));
+    client.println(F("Connnection: close"));
     client.println();     //!!!! end of http headers
-    
+
+    pushFileToClient(clientRequestUri, client);
+  }
+  else if(fileExt == ".jpg"){  //see "the 8.3 convention"!!!  fileName[8].fileExt[3] 
+    client.println(F("HTTP/1.1 200 OK"));
+    client.println(F("Content-Type: image/jpeg"));
+    client.println(F("Connnection: close"));
+    client.println();     //!!!! end of http headers
+
     pushFileToClient(clientRequestUri, client);
   }
   else if(fileExt == ".csv"){
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type: text/plain");
-    client.println("Connnection: close");
-    client.println();     //!!!! end of http headers
-    
-    pushFileToClient(clientRequestUri, client);
-  } 
-  else if(fileExt == ".ram"){
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type: text/plain");
-    client.println("Connnection: close");
+    client.println(F("HTTP/1.1 200 OK"));
+    client.println(F("Content-Type: text/plain"));
+    client.println(F("Connnection: close"));
     client.println();     //!!!! end of http headers
 
-    int freeRam = FreeRam();
-    String freeRamInfo = "freeRAM: 2048 - ";
-    freeRamInfo += freeRam;
-    freeRamInfo += " bytes<br>";
-    client.println(freeRamInfo);
-  } 
+    pushFileToClient(clientRequestUri, client);
+  }     
+  else{
+    client.println(F("HTTP/1.1 404 NOT FOUND"));    
+    client.println(F("Connnection: close"));
+    client.println();     //!!!! end of http headers
+  }
+
 }
 
-void pushFileToClient(String clientRequestUri, EthernetClient client){  
+void pushFileToClient(String& clientRequestUri, EthernetClient& client){  
   //string to char[]
   char filename[clientRequestUri.length()+1];
   clientRequestUri.toCharArray(filename, sizeof(filename));
 
   sdFile = SD.open(filename, FILE_READ);
   if (sdFile) { 
-    char buff[65];
+    char buff[33]; //try 65 - out of RAM_arduino_328
     while (sdFile.available()) {
-      int buffSize = sdFile.read(buff,64);
+      int buffSize = sdFile.read(buff,32);//try 64 - out of RAM_arduino_328
       client.write((byte*)buff,buffSize);	  	  
     }      
     sdFile.close();
   } 
 }
 
-void logRequest(String clientRequestUriRaw){ 
+void logRequest(String& clientRequestUriRaw){ 
   DateTime now = RTC.now();    
   sdFile = SD.open("LOG.CSV", FILE_WRITE);  
   if (sdFile) {      
@@ -212,6 +220,8 @@ int freeRam() {
   int v;
   return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int) __brkval);  
 }
+
+
 
 
 
