@@ -93,33 +93,10 @@ void loop()
   if (client) {      
     boolean isCLientRequestEnded = false; // an http request ends with a blank line  
     char clientRequestCharPrev = ' ';
-    char clientRequestCharCurr = ' ';
-    String clientRequestUriRaw = "";
-    uint8_t clientRequestUriRawSize = 0;
-    bool clientRequestUriRawGrab = true;
+    char clientRequestCharCurr = ' ';      
     while (client.connected()) {
       if (client.available()) {
         char clientRequestChar = client.read();  
-
-        //first "\r" in "GET /images/bob.jpg HTTP/1.1\r\nHost: 192..." OR size is over 100 chars
-        if( (clientRequestChar == '\r') || (clientRequestUriRawSize > 100) ){   
-          clientRequestUriRawGrab = false;
-        }        
-        if(clientRequestUriRawGrab){          
-          clientRequestUriRaw += clientRequestChar;   
-          clientRequestUriRawSize++;       
-        }        
-
-        /*
-        Serial.print(clientRequestChar);
-         if(clientRequestChar == '\n'){
-         Serial.print('N');
-         }
-         if(clientRequestChar == '\r'){
-         Serial.print('R');
-         } */
-
-
         clientRequestCharPrev = clientRequestCharCurr;
         clientRequestCharCurr = clientRequestChar;
         if(clientRequestCharPrev == '\n' && clientRequestCharCurr == '\r'){
@@ -129,13 +106,11 @@ void loop()
           isCLientRequestEnded = false;
         }
 
-        if(isCLientRequestEnded){
-          //Serial.println("isCLientRequestEnded = TRUE");  
-          //Serial.println(clientRequestUriRaw);          
-          processRequest(clientRequestUriRaw, client);
-
+        if(isCLientRequestEnded){                    
+          processRequest(client);
           delay(1); // give the web browser time to receive the data       
-          client.stop(); // close the connection            
+          client.stop(); // close the connection  
+          logRequest();            
         }
       }      
     }    
@@ -149,94 +124,36 @@ void loop()
 
 }//loop
 
-void processRequest(String clientRequestUriRaw, EthernetClient client){     
-  File currFile;
-  String clientRequestUri = " ";
-  clientRequestUri = clientRequestUriRaw; //GET /images/bob.jpg HTTP/1.1
-  clientRequestUri.replace("GET /", "");
-  clientRequestUri.replace(" HTTP/1.1", "");
-  clientRequestUri.trim();
-  uint8_t uriSize = clientRequestUri.length();
-  String fileExt = "";
-  for(int i=0; i<4; i++){
-    uint8_t pos = uriSize -4 +i;
-    fileExt += clientRequestUri[pos];
-  } 
-
-  if(fileExt == ".jpg"){
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type: image/jpeg");
-    client.println("Connnection: close");
-    client.println();     //!!!! end of http headers
-  }  
-  else if(fileExt == ".htm"){  //see "the 8.3 convention"!!!  fileName[8].fileExt[3] 
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type: text/html");
-    client.println("Connnection: close");
-    client.println();     //!!!! end of http headers
-  }
-  else if(fileExt == ".txt"){
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type: text/plain");
-    client.println("Connnection: close");
-    client.println();     //!!!! end of http headers
-  }
-  else{
-    client.println("HTTP/1.1 404 Not Found");    
-    client.println("Connnection: close");
-    client.println();     //!!!! end of http headers
-    return; //EXIT!!
-  }
-
-  //string to char[]
-  char filename[clientRequestUri.length()+1];
-  clientRequestUri.toCharArray(filename, sizeof(filename));
-
-  currFile = SD.open(filename, FILE_READ);
-  if (currFile) { 
-    char buff[65];
-    while (currFile.available()) {
-      int buffSize = currFile.read(buff,64);
-      client.write((byte*)buff,buffSize);	  	  
-    }      
-    currFile.close();
-  } 
-
-  //Serial.print("filename=");
-  //Serial.print(filename);  
-  //Serial.print("\r\n");
-
-  //Serial.print("uriSize=");
-  //Serial.print(uriSize);
-  //Serial.print("\r\n");
-
-  //Serial.print("fileExt=");
-  //Serial.print(fileExt);  
-  //Serial.print("\r\n");
-
-  delay(10);
-  logRequest(clientRequestUri);  
+void processRequest(EthernetClient client){  
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connnection: close");
+  client.println();     //!!!! end of http headers  
+  client.println("<!DOCTYPE html>");
+  client.println("<html>");
+  client.println("<head>");
+  client.println("<meta charset='UTF-8'>");
+  client.println("<title>ethernetW5200 RTC SD</title>");
+  client.println("</head>");
+  client.println("<body>");
+  client.println("Hello!");
+  client.println("</body>");
+  client.println("</html>"); 
+  
 }
 
+void logRequest(){ 
+  DateTime now = RTC.now();  
 
-void logRequest(String clientRequestUri){ 
-  DateTime now = RTC.now();
-  //Serial.println(now.day(), DEC);
-
-  File logFile; //log.txt
+  File logFile; 
   logFile = SD.open("LOG.TXT", FILE_WRITE);  
-  if (logFile) {  
-    int randNumber = random(0, 9999);  
+  if (logFile) {      
     char line[50];    
-    //Is a C++ String, not a character array like sprintf() is expecting.
-    // To convert this string to a character array such that sprintf is expecting, you must use .c_str() in your sprintf
-    sprintf(line, "%s %02d:%02d:%02d %02d-%02d-%04d", 
-    clientRequestUri.c_str(), 
+    sprintf(line, "%02d:%02d:%02d %02d-%02d-%04d",     
     now.hour(), now.minute(), now.second(),
     now.day(),now.month(), now.year()    
       );
-    logFile.println(line);  
-    //Serial.println(line);  
+    logFile.println(line);      
     logFile.close();  
   }
 }
@@ -247,6 +164,7 @@ int freeRam() {
  return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int) __brkval);  
  }
  */
+
 
 
 
