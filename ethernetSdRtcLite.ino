@@ -62,6 +62,8 @@ IPAddress ip(192,168,0,111);
 // (port 80 is default for HTTP):
 EthernetServer server(80);
 
+File sdFile;  
+
 void setup()
 {
   //Serial.begin(9600);  
@@ -77,13 +79,11 @@ void setup()
   Ethernet.begin(mac, ip); //it bang d10 and d4?
   server.begin();  
 
-  delay(50);
-  //Wire.begin();
+  delay(50);  
   RTC.begin();
   //RTC.adjust(DateTime(F(__DATE__), F(__TIME__)));
   delay(100);
 }
-
 
 
 void loop()
@@ -93,10 +93,23 @@ void loop()
   if (client) {      
     boolean isCLientRequestEnded = false; // an http request ends with a blank line  
     char clientRequestCharPrev = ' ';
-    char clientRequestCharCurr = ' ';      
+    char clientRequestCharCurr = ' ';     
+    String clientRequestUriRaw = "";
+    uint8_t clientRequestUriRawSize = 0;
+    bool clientRequestUriRawGrab = true; 
     while (client.connected()) {
       if (client.available()) {
         char clientRequestChar = client.read();  
+
+        //first "\r" in "GET /images/bob.jpg HTTP/1.1\r\nHost: 192..." OR size is over 100 chars
+        if( (clientRequestChar == '\r') || (clientRequestUriRawSize > 100) ){   
+          clientRequestUriRawGrab = false;
+        }        
+        if(clientRequestUriRawGrab){          
+          clientRequestUriRaw += clientRequestChar;   
+          clientRequestUriRawSize++;       
+        }   
+
         clientRequestCharPrev = clientRequestCharCurr;
         clientRequestCharCurr = clientRequestChar;
         if(clientRequestCharPrev == '\n' && clientRequestCharCurr == '\r'){
@@ -107,63 +120,105 @@ void loop()
         }
 
         if(isCLientRequestEnded){                    
-          processRequest(client);
+          processRequest(clientRequestUriRaw, client);
           delay(1); // give the web browser time to receive the data       
           client.stop(); // close the connection  
-          logRequest();            
+          logRequest(clientRequestUriRaw);            
         }
       }      
-    }    
-
-    //int freeRam = FreeRam();
-    //String freeRamInfo = "freeRAM: 2048 - ";
-    //freeRamInfo += freeRam;
-    //freeRamInfo += " bytes";
-    //Serial.println(freeRamInfo);     
+    }             
   }   //endif client
 
 }//loop
 
-void processRequest(EthernetClient client){  
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-Type: text/html");
-  client.println("Connnection: close");
-  client.println();     //!!!! end of http headers  
-  client.println("<!DOCTYPE html>");
-  client.println("<html>");
-  client.println("<head>");
-  client.println("<meta charset='UTF-8'>");
-  client.println("<title>ethernetW5200 RTC SD</title>");
-  client.println("</head>");
-  client.println("<body>");
-  client.println("Hello!");
-  client.println("</body>");
-  client.println("</html>"); 
-  
+void processRequest(String clientRequestUriRaw, EthernetClient client){  
+  String clientRequestUri = " ";
+  clientRequestUri = clientRequestUriRaw; //GET /images/bob.jpg HTTP/1.1
+  clientRequestUri.replace("GET /", "");
+  clientRequestUri.replace(" HTTP/1.1", "");
+  clientRequestUri.trim();
+  uint8_t uriSize = clientRequestUri.length();
+  String fileExt = "";
+  for(int i=0; i<4; i++){
+    uint8_t pos = uriSize -4 +i;
+    fileExt += clientRequestUri[pos];
+  } 
+
+  if(fileExt == ".htm"){  //see "the 8.3 convention"!!!  fileName[8].fileExt[3] 
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: text/html");
+    client.println("Connnection: close");
+    client.println();     //!!!! end of http headers
+    
+    pushFileToClient(clientRequestUri, client);
+  }
+  else if(fileExt == ".csv"){
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: text/plain");
+    client.println("Connnection: close");
+    client.println();     //!!!! end of http headers
+    
+    pushFileToClient(clientRequestUri, client);
+  } 
+  else if(fileExt == ".ram"){
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: text/plain");
+    client.println("Connnection: close");
+    client.println();     //!!!! end of http headers
+
+    int freeRam = FreeRam();
+    String freeRamInfo = "freeRAM: 2048 - ";
+    freeRamInfo += freeRam;
+    freeRamInfo += " bytes<br>";
+    client.println(freeRamInfo);
+  } 
 }
 
-void logRequest(){ 
-  DateTime now = RTC.now();  
+void pushFileToClient(String clientRequestUri, EthernetClient client){  
+  //string to char[]
+  char filename[clientRequestUri.length()+1];
+  clientRequestUri.toCharArray(filename, sizeof(filename));
 
-  File logFile; 
-  logFile = SD.open("LOG.TXT", FILE_WRITE);  
-  if (logFile) {      
-    char line[50];    
-    sprintf(line, "%02d:%02d:%02d %02d-%02d-%04d",     
+  sdFile = SD.open(filename, FILE_READ);
+  if (sdFile) { 
+    char buff[65];
+    while (sdFile.available()) {
+      int buffSize = sdFile.read(buff,64);
+      client.write((byte*)buff,buffSize);	  	  
+    }      
+    sdFile.close();
+  } 
+}
+
+void logRequest(String clientRequestUriRaw){ 
+  DateTime now = RTC.now();    
+  sdFile = SD.open("LOG.CSV", FILE_WRITE);  
+  if (sdFile) {      
+    char line[50]; 
+    //Is a C++ String, not a character array like sprintf() is expecting.
+    // To convert this string to a character array such that sprintf is expecting, you must use .c_str() in your sprintf   
+    sprintf(line, "\"%s\"\t\"%02d:%02d:%02d\"\t\"%02d-%02d-%04d\"",  
+    clientRequestUriRaw.c_str(), 
     now.hour(), now.minute(), now.second(),
     now.day(),now.month(), now.year()    
       );
-    logFile.println(line);      
-    logFile.close();  
+    sdFile.println(line);      
+    sdFile.close();  
   }
 }
-/*
+
 int freeRam() {
- extern int __heap_start,*__brkval;
- int v;
- return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int) __brkval);  
- }
- */
+  extern int __heap_start,*__brkval;
+  int v;
+  return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int) __brkval);  
+}
+
+
+
+
+
+
+
 
 
 
